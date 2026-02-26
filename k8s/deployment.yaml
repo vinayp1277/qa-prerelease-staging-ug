@@ -90,7 +90,7 @@ spec:
               memory: 64Mi
         # ── AutoTest app (frontend + backend) ──
         - name: autotest
-          image: autotest:v3-timeline-20260226
+          image: autotest:v3-podlabel-20260226
           imagePullPolicy: Never  # Use local docker image
           ports:
             - name: frontend
