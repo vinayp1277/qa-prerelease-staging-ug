@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qa-autotest
+  namespace: qa-autotest
+  labels:
+    app: qa-autotest
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: qa-autotest
+  template:
+    metadata:
+      labels:
+        app: qa-autotest
+    spec:
+      # Init container: clone yaml-repo if PVC is empty (first deploy)
+      initContainers:
+        - name: yaml-repo-init
+          image: alpine/git:latest
+          command:
+            - sh
+            - -c
+            - |
+              if [ ! -d /yaml-repo/.git ]; then
+                echo "PVC empty — cloning sportybet-yaml-staging..."
+                git clone "https://${GITHUB_TOKEN}@github.com/${GITHUB_ORG:-opennetltd}/sportybet-yaml-staging.git" /yaml-repo
+              else
+                echo "YAML repo already exists on PVC — pulling latest..."
+                cd /yaml-repo && git pull --ff-only || true
+              fi
+              # Ensure git identity is configured (required for commit)
+              cd /yaml-repo
+              git config user.name "qa-autotest"
+              git config user.email "qa-autotest@sporty.com"
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: autotest-secrets
+                  key: GITHUB_TOKEN
+            - name: GITHUB_ORG
+              valueFrom:
+                configMapKeyRef:
+                  name: autotest-config
+                  key: GITHUB_ORG
+          volumeMounts:
+            - name: yaml-repo
+              mountPath: /yaml-repo
+      containers:
+        # ── Nginx reverse proxy (handles WebSocket upgrades) ──
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+        # ── AutoTest app (frontend + backend) ──
+        - name: autotest
+          image: autotest:v3-timeline-20260226
+          imagePullPolicy: Never  # Use local docker image
+          ports:
+            - name: frontend
+              containerPort: 3000  # Next.js/sirv static frontend
+            - name: backend
+              containerPort: 8000  # Python Reflex backend (Granian)
+          envFrom:
+            - configMapRef:
+                name: autotest-config
+            - secretRef:
+                name: autotest-secrets
+          volumeMounts:
+            # Pipeline data: runs/, live_state.json, roster.json
+            - name: data
+              mountPath: /app/data
+            # GitOps YAML repo: preserves git state across restarts
+            - name: yaml-repo
+              mountPath: /app/yaml-repo
+          # ── Resource sizing for ~500 DAU ──
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1536Mi
+            limits:
+              cpu: "2"
+              memory: 2560Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: autotest-data
+        - name: yaml-repo
+          persistentVolumeClaim:
+            claimName: autotest-yaml-repo
+        - name: nginx-conf
+          configMap:
+            name: autotest-nginx

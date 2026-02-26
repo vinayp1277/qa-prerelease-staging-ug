@@ -1,0 +1,59 @@
+.states
+assets/external/
+.web
+*.db
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# Reflex
+.web/
+.states/
+
+# Node
+node_modules/
+
+# Environment
+.env
+
+# Secrets (never commit real secrets — use secret.example.yaml as template)
+k8s/secret.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/runs/*.json
+
+# Cloned YAML repo (Docker build / local dev)
+yaml-repo/
+
+# uv
+.uv/
+
+# mypy
+.mypy_cache/
+
+# pytest
+.pytest_cache/
+
+# ruff
+.ruff_cache/
